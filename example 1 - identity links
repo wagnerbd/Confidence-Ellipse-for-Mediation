@@ -1,0 +1,85 @@
+/*Example 1 Cystic Fibrosis Data for Bivariate Analysis*/
+data EX1;  
+   input id A M Y;
+   datalines;
+269 0.81954 6.71   96.855 
+278 2.04060 3.33  108.206 
+279 1.88649 4.64   84.801 
+345 1.06952 4.42   88.234 
+348 1.81823 13.44 100.477 
+367 1.22011 9.75   99.782 
+368 2.51825 28.43  58.559 
+375 0.69897 7.13   99.614 
+377 1.49693 12.43  75.753 
+386 0.81954 11.78  81.443 
+404 1.79099 17.75  75.051 
+414 2.39898 15.93  70.918 
+527 0.69897 2.08   97.927 
+568 0.69897 7.87  108.146 
+570 0.76343 8.69   97.309 
+572 0.81954 10.38  97.371 
+601 1.98677 18.71  53.689 
+602 1.64542 12.18  87.626 
+640 1.02531 14.33 108.322 
+667 1.59550 12.45  77.981 
+672 2.18469 12.09  89.727 
+679 1.95328 10.08 108.437 
+694 1.97220 14.33 104.892 
+712 1.30535 5.17   96.333 
+761 0.95424 7.33  116.813 
+767 1.73719 14.17  75.609 
+902 0.69897 10.88 108.488 
+924 1.89098 21.92  65.775 
+;
+  run;
+proc sort data=EX1;  by id;  run;
+
+proc freq data=EX1;
+	table id/ out=sub;
+run;
+proc means data=sub;
+	var id;
+	output out=numsub n=numsub;
+run;
+data _NULL_;
+	set numsub;
+	call symput('n', numsub);
+run;
+%put &n;
+
+title ' Joint Distribution of M and Y given A';
+proc nlmixed data=EX1 df=&n. ecov;
+parms t0=117 t1=-6.4 t2=-1.5 b0=3.1 b1=5.8 ss_m=21.5 ss_y=135.6;
+bounds ss_m > 0, ss_y > 0;
+ * Conditional distribution of M given A;
+	mu_m =b0 + b1*A;
+	ll_m= -((m-mu_m)**2)/(2*ss_m)-0.5*log(ss_m);
+ * Conditional distribution of Y given M and A;
+	mu_y=t0 + t1*A + t2*M;
+	ll_y= -((y-mu_y)**2)/(2*ss_y)-0.5*log(ss_y);
+ * Add log likelihoods of M and Y;
+	ll_o= ll_m + ll_y;
+ * Define (a-astar);
+    delA=(1-0);
+	model Y ~general(ll_o);
+      estimate 'B1' b1  ;
+      estimate 'T2' t2  ;
+ods output AdditionalEstimates = AdditionalEstimates
+           CovMatAddEst      = CovMatAddEst;
+run;
+
+title ' Simultaneous 95% Confidence Limits for B1, T2, and their Product Based on 95% Confidence Ellipse';
+%confidence_ellipse (AdditionalEstimates, CovMatAddEst, 0.05, Ellipse1); 
+
+proc sort data=Ellipse1;  by B1;
+proc gplot data=Ellipse1;
+   plot   minminT2*B1=1 maxmaxT2*B1=1 minT2*B1=2 maxT2*B1=2 T2*B1=3 / overlay      
+   vaxis=axis1 haxis=axis2;
+   axis1 label=(a=90 h=4 f=cgreek 'q' h=2 f=zapf '2') minor=none 
+value=(h=1.5);  
+   axis2 label=(h=4 f=cgreek 'b' h=2 f=zapf '1') minor=none value=(h=1.5);
+   symbol1 i=j line=1 color=red w=2 ;
+   symbol2 i=j line=1 color=blue w=2 l=22;
+   symbol3 i=hilo line=1 color=red w=2;
+ run;
+
