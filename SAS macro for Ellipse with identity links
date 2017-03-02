@@ -1,0 +1,101 @@
+
+
+%macro confidence_ellipse(AdditionalEstimates, CovMatAddEst, alpha, outData);
+proc iml worksize=600; reset fw=7;
+start init;
+  use &AdditionalEstimates.;
+    read all var {Label}  into Label;  read all var {Estimate} into Estimate;  
+    close &AdditionalEstimates.;
+  use &CovMatAddEst.; Cov=repeat(0,2,2);
+    read all var {Label}  into Label;  
+    read all var {Cov1} into Cov1;    
+    read all var {Cov2} into Cov2; 
+    Cov[1,1]=Cov1[1];     Cov[1,2]=Cov2[1]; 
+    Cov[2,1]=Cov1[2];     Cov[2,2]=Cov2[2];
+    close &CovMatAddEst.;
+  print Label Estimate Cov;
+finish;
+
+start ellipse;
+  F=Finv(1-alpha,2,df);  Scheffe=sqrt(2*F);  B1=repeat(0,1000,1);           
+  Obs=repeat(0,1000,1);  
+  L={1 0}; B1Hat=L*Estimate;  SeB1Hat=sqrt(L*Cov*L`);  
+  MinimumB1=B1Hat-Scheffe*SeB1Hat;  MaximumB1=B1Hat+Scheffe*SeB1Hat;
+  L={0 1}; T2Hat=L*Estimate;  SeT2Hat=sqrt(L*Cov*L`);  
+  MinimumT2=T2Hat-Scheffe*SeT2Hat;  MaximumT2=T2Hat+Scheffe*SeT2Hat;
+  i=1;
+  do Beta=MinimumB1 to MaximumB1 by  SeB1Hat/10;
+    Obs[i]=i;  B1[i]=Beta; i=i+1;
+  end;
+  k=i;  Obs[k]=k;  B1[k]=MaximumB1;  
+  x=repeat(0,k,1);        
+  miny=repeat(0,k,1);     maxy=repeat(0,k,1);  
+  minT2=repeat(0,k,1);    maxT2=repeat(0,k,1);    
+  minminT2=repeat(0,k,1); maxmaxT2=repeat(0,k,1);
+  minB1T2=repeat(0,k,1);  maxB1T2=repeat(0,k,1);  
+  do i=1 to k;
+    x[i]=(B1[i]-B1Hat)/sqrt(Cov[1,1]);
+    miny[i]=-sqrt((scheffe**2-x[i]**2)<> 0);     
+    maxy[i]=+sqrt((scheffe**2-x[i]**2) <> 0); 
+    minT2[i]=T2Hat+miny[i]*sqrt(cov[2,2]);  
+    maxT2[i]=T2Hat+maxy[i]*sqrt(cov[2,2]);
+    minminT2[i]=MinimumT2;  maxmaxT2[i]=MaximumT2;
+    if (B1[i]>=0) then do;
+        minB1T2[i]=B1[i]*minT2[i];  maxB1T2[i]=B1[i]*maxT2[i];
+    end;
+    if (B1[i]<0) then do;
+        maxB1T2[i]=B1[i]*minT2[i];  minB1T2[i]=B1[i]*maxT2[i];
+    end;
+  end;
+  B1=B1[1:k];   Obs=Obs[1:k]; 
+  Product=B1hat*T2Hat;  SeProduct=.;
+  MinProduct=min(minB1T2);   MaxProduct=max(maxB1T2);   
+  minminB1T2=repeat(minProduct,k,1);  maxmaxB1T2=repeat(maxProduct,k,1);
+  create EllipseData var{ Obs B1 minT2 maxT2 minB1T2 maxB1T2 minminT2 maxmaxT2  
+  minminB1T2 maxmaxB1T2};  append;  close EllipseData ;
+  print alpha df F Scheffe, B1Hat SeB1Hat  MinimumB1 MaximumB1, T2Hat SeT2Hat    
+  MinimumT2 MaximumT2, Product SeProduct MinProduct MaxProduct;
+  finish;
+
+run init;  alpha=&alpha.; df=&n.;  run ellipse;
+proc means data=EllipseData noprint;
+	var b1;
+	output out=numobs n=numobs;
+run;
+data _NULL_;
+	set numobs;
+	call symput('k', numobs);
+run;
+%put &k;
+
+title ' Simultaneous 95% Confidence Limits for B1, T2, and their Product Based on 95% Confidence Ellipse';
+
+data ScheffeRectangle;  set EllipseData;
+  k=&k.; /*k = max number of observations*/
+  T3=0;
+  if obs=1 then do;
+      B1=B1;  T2=minminT2;  B1T2=minminB1T2;  output;
+      B1=B1;  T2=maxmaxT2;  B1T2=maxmaxB1T2;  output;
+  end;
+  if obs=k then do;
+     B1=B1;  T2=minminT2;  B1T2=minminB1T2;  output;
+     B1=B1;  T2=maxmaxT2;  B1T2=maxmaxB1T2;  output;
+  end;
+  obs=k+1; B1=0; T4=minminT2;   output;
+  obs=k+2; B1=0; T4=maxmaxT2;   output;
+  run;
+
+data ScheffeRectangle;  set ScheffeRectangle;
+  if (obs=k+1 or obs=k+2) then do;
+     minminT2=.;  maxmaxT2=.; minT2=.; maxT2=.;  T2=.;  T3=. ;  minB1T2=. ;  
+     maxB1T2=. ; minminB1T2=. ;  maxmaxB1T2=. ;
+  end;
+run;
+
+proc sort data=EllipseData; by Obs;
+proc sort data=ScheffeRectangle; by Obs;
+data &outData.;
+   merge Ellipsedata ScheffeRectangle; by obs;
+run;
+
+%mend;
